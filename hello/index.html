@@ -2,12 +2,354 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Title</title>
-    <link href="styles.css" rel="stylesheet">
-    <script src="script.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        #canvas-container {
+            display: flex;
+        }
+
+        #canvas {
+            border: 1px solid #000;
+        }
+
+        #sidebar {
+            width: 200px;
+            padding: 10px;
+            background-color: #eee;
+        }
+
+        .sidebar-item {
+            margin-bottom: 10px;
+            cursor: move;
+        }
+
+        .configurator-form {
+            display: none;
+            flex-direction: column;
+            align-items: flex-start;
+        }
+
+        .configurator-form label {
+            margin-bottom: 5px;
+        }
+
+        .grid-line {
+            stroke-width: 1;
+        }
+
+        .bold-grid-line {
+            stroke-width: 2;
+        }
+    </style>
+    <title>Closet Configurator</title>
 </head>
 <body>
-<canvas id="canvas"></canvas>
+
+<div id="canvas-container">
+    <div id="sidebar">
+        <div class="sidebar-item" data-type="shelf">Add Shelf</div>
+        <div class="sidebar-item" data-type="drawer">Add Drawer</div>
+        <div class="sidebar-item" data-type="hanger">Add Hanger</div>
+        <div class="sidebar-item" data-type="storage">Add Storage</div>
+        <!-- Add more items as needed -->
+    </div>
+    <canvas id="canvas" width="800" height="400"></canvas>
+</div>
+
+<div id="configurator" class="configurator-form">
+    <label for="item-type">Item Type:</label>
+    <select id="item-type" name="item-type">
+        <option value="shelf">Shelf</option>
+        <option value="drawer">Drawer</option>
+        <option value="hanger">Hanger</option>
+        <option value="storage">Storage</option>
+        <!-- Add more options as needed -->
+    </select>
+
+    <label for="item-color">Item Color:</label>
+    <input type="text" id="item-color" name="item-color" />
+
+    <label for="item-width">Item Width:</label>
+    <input type="number" id="item-width" name="item-width" min="1" />
+
+    <label for="item-height">Item Height:</label>
+    <input type="number" id="item-height" name="item-height" min="1" />
+
+    <label for="item-rotation">Item Rotation:</label>
+    <input type="number" id="item-rotation" name="item-rotation" min="0" max="360" />
+
+    <button id="apply-changes">Apply Changes</button>
+    <button id="cancel-changes">Cancel</button>
+</div>
+
+<button id="reset-canvas">Reset Canvas</button>
+
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    let isDragging = false;
+    let isResizing = false;
+    let dragStartX, dragStartY;
+    let draggedElement = null;
+    let selectedElement = null;
+    let resizingCorner = null;
+
+    // Elements on the canvas
+    const elements = [];
+
+    // Sidebar items data
+    const sidebarItems = document.querySelectorAll('.sidebar-item');
+
+    sidebarItems.forEach(item => {
+      item.draggable = true;
+      item.addEventListener('dragstart', (event) => {
+        event.dataTransfer.setData('text/plain', ''); // Firefox requires this to enable dragging
+        const data = {
+          type: item.getAttribute('data-type'),
+          color: item.getAttribute('data-color'),
+        };
+        event.dataTransfer.setData('application/json', JSON.stringify(data));
+      });
+    });
+
+    // Grid settings
+    const gridSize = 20;
+
+    function drawGrid() {
+      ctx.beginPath();
+      for (let x = 0; x <= canvas.width; x += gridSize) {
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, canvas.height);
+      }
+      for (let y = 0; y <= canvas.height; y += gridSize) {
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvas.width, y);
+      }
+      ctx.strokeStyle = '#ddd';
+      ctx.stroke();
+    }
+
+    function drawBoldGridLines() {
+      ctx.beginPath();
+      for (let x = 0; x <= canvas.width; x += gridSize * 5) {
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, canvas.height);
+      }
+      for (let y = 0; y <= canvas.height; y += gridSize * 5) {
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvas.width, y);
+      }
+      ctx.strokeStyle = '#ddd';
+      ctx.stroke();
+    }
+
+    function drawElements() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawGrid();
+      drawBoldGridLines();
+      elements.forEach(element => {
+        ctx.save();
+        ctx.translate(element.x + element.width / 2, element.y + element.height / 2);
+        ctx.rotate((element.rotation * Math.PI) / 180);
+        ctx.fillStyle = element.color;
+        ctx.fillRect(-element.width / 2, -element.height / 2, element.width, element.height);
+        ctx.restore();
+      });
+    }
+
+    function handleMouseDown(event) {
+      const mouseX = event.clientX - canvas.getBoundingClientRect().left;
+      const mouseY = event.clientY - canvas.getBoundingClientRect().top;
+
+      // Check if clicked on an existing element
+      for (let i = elements.length - 1; i >= 0; i--) {
+        if (isInsideElement(mouseX, mouseY, elements[i])) {
+          isDragging = true;
+          draggedElement = elements[i];
+          dragStartX = mouseX - draggedElement.x;
+          dragStartY = mouseY - draggedElement.y;
+
+          // Check if resizing corner clicked
+          if (
+            mouseX >= draggedElement.x + draggedElement.width - 10 &&
+            mouseX <= draggedElement.x + draggedElement.width + 10 &&
+            mouseY >= draggedElement.y + draggedElement.height - 10 &&
+            mouseY <= draggedElement.y + draggedElement.height + 10
+          ) {
+            isResizing = true;
+            resizingCorner = 'bottom-right';
+          }
+
+          selectedElement = draggedElement;
+          showConfiguratorForm();
+          break;
+        }
+      }
+    }
+
+    function handleMouseMove(event) {
+      if (!isDragging && !isResizing) return;
+
+      const mouseX = event.clientX - canvas.getBoundingClientRect().left;
+      const mouseY = event.clientY - canvas.getBoundingClientRect().top;
+
+      if (isDragging) {
+        draggedElement.x = Math.round((mouseX - dragStartX) / gridSize) * gridSize;
+        draggedElement.y = Math.round((mouseY - dragStartY) / gridSize) * gridSize;
+      } else if (isResizing) {
+        const newWidth = Math.max(10, Math.round((mouseX - draggedElement.x) / gridSize) * gridSize);
+        const newHeight = Math.max(10, Math.round((mouseY - draggedElement.y) / gridSize) * gridSize);
+
+        if (resizingCorner === 'bottom-right') {
+          draggedElement.width = newWidth;
+          draggedElement.height = newHeight;
+        }
+      }
+
+      drawElements();
+    }
+
+    function handleMouseUp() {
+      isDragging = false;
+      isResizing = false;
+      draggedElement = null;
+      selectedElement = null;
+      resizingCorner = null;
+      hideConfiguratorForm();
+    }
+
+    function handleDrop(event) {
+      event.preventDefault();
+      const data = JSON.parse(event.dataTransfer.getData('application/json'));
+      const mouseX = event.clientX - canvas.getBoundingClientRect().left;
+      const mouseY = event.clientY - canvas.getBoundingClientRect().top;
+
+      // Snap to grid
+      const snappedX = Math.round(mouseX / gridSize) * gridSize;
+      const snappedY = Math.round(mouseY / gridSize) * gridSize;
+
+      elements.push({
+        type: data.type,
+        color: data.color,
+        x: snappedX,
+        y: snappedY,
+        width: 60, // Default width
+        height: 80, // Default height
+        rotation: 0, // Default rotation
+      });
+
+      drawElements();
+    }
+
+    function isInsideElement(x, y, element) {
+      const rotatedX = (x - element.x) * Math.cos((-element.rotation * Math.PI) / 180) - (y - element.y) * Math.sin((-element.rotation * Math.PI) / 180) + element.x;
+      const rotatedY = (x - element.x) * Math.sin((-element.rotation * Math.PI) / 180) + (y - element.y) * Math.cos((-element.rotation * Math.PI) / 180) + element.y;
+
+      return (
+        rotatedX >= element.x &&
+        rotatedX <= element.x + element.width &&
+        rotatedY >= element.y &&
+        rotatedY <= element.y + element.height
+      );
+    }
+
+    function showConfiguratorForm() {
+      const configurator = document.getElementById('configurator');
+      const itemTypeSelect = document.getElementById('item-type');
+      const itemColorInput = document.getElementById('item-color');
+      const itemWidthInput = document.getElementById('item-width');
+      const itemHeightInput = document.getElementById('item-height');
+      const itemRotationInput = document.getElementById('item-rotation');
+      const applyChangesBtn = document.getElementById('apply-changes');
+      const cancelChangesBtn = document.getElementById('cancel-changes');
+
+      itemTypeSelect.value = selectedElement.type;
+      itemColorInput.value = selectedElement.color;
+      itemWidthInput.value = selectedElement.width;
+      itemHeightInput.value = selectedElement.height;
+      itemRotationInput.value = selectedElement.rotation;
+
+      applyChangesBtn.addEventListener('click', applyChanges);
+      cancelChangesBtn.addEventListener('click', cancelChanges);
+
+      configurator.style.display = 'flex';
+    }
+
+    function hideConfiguratorForm() {
+      const configurator = document.getElementById('configurator');
+      const applyChangesBtn = document.getElementById('apply-changes');
+      const cancelChangesBtn = document.getElementById('cancel-changes');
+
+      applyChangesBtn.removeEventListener('click', applyChanges);
+      cancelChangesBtn.removeEventListener('click', cancelChanges);
+
+      configurator.style.display = 'none';
+    }
+
+    function applyChanges() {
+      const itemTypeSelect = document.getElementById('item-type');
+      const itemColorInput = document.getElementById('item-color');
+      const itemWidthInput = document.getElementById('item-width');
+      const itemHeightInput = document.getElementById('item-height');
+      const itemRotationInput = document.getElementById('item-rotation');
+
+      selectedElement.type = itemTypeSelect.value;
+      selectedElement.color = itemColorInput.value;
+      selectedElement.width = Math.max(10, parseInt(itemWidthInput.value));
+      selectedElement.height = Math.max(10, parseInt(itemHeightInput.value));
+      selectedElement.rotation = parseInt(itemRotationInput.value);
+
+      // Snap to grid
+      selectedElement.x = Math.round(selectedElement.x / gridSize) * gridSize;
+      selectedElement.y = Math.round(selectedElement.y / gridSize) * gridSize;
+
+      drawElements();
+      hideConfiguratorForm();
+    }
+
+    function cancelChanges() {
+      hideConfiguratorForm();
+    }
+
+    function resetCanvas() {
+      elements.length = 0;
+      drawElements();
+    }
+
+    // Add event listeners
+    canvas.addEventListener('mousedown', handleMouseDown);
+    canvas.addEventListener('mousemove', handleMouseMove);
+    canvas.addEventListener('mouseup', handleMouseUp);
+    canvas.addEventListener('drop', handleDrop);
+    canvas.addEventListener('dragover', function (event) {
+      event.preventDefault();
+    });
+
+    // Right-click to remove shapes
+    canvas.addEventListener('contextmenu', function (event) {
+      event.preventDefault();
+      const mouseX = event.clientX - canvas.getBoundingClientRect().left;
+      const mouseY = event.clientY - canvas.getBoundingClientRect().top;
+
+      for (let i = elements.length - 1; i >= 0; i--) {
+        if (isInsideElement(mouseX, mouseY, elements[i])) {
+          elements.splice(i, 1);
+          break;
+        }
+      }
+
+      drawElements();
+    });
+
+    // Reset canvas button
+    const resetCanvasBtn = document.getElementById('reset-canvas');
+    resetCanvasBtn.addEventListener('click', resetCanvas);
+
+    // Initial drawing
+    drawElements();
+  });
+</script>
 
 </body>
 </html>

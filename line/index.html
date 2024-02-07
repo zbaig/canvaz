@@ -2,12 +2,95 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Title</title>
-    <link href="styles.css" rel="stylesheet">
-    <script src="script.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script type="module">
+      import * as THREE from 'https://threejsfundamentals.org/threejs/resources/threejs/r127/build/three.module.js';
+
+      document.addEventListener('DOMContentLoaded', function () {
+        const canvas = document.getElementById('canvas');
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, canvas.width / canvas.height, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ canvas });
+
+        // Elements on the canvas
+        const elements = [];
+
+        // Grid settings
+        const gridSize = 20;
+
+        // Initialize Three.js scene
+        function init() {
+          camera.position.z = 5;
+          renderer.setSize(canvas.width, canvas.height);
+          document.body.appendChild(renderer.domElement);
+        }
+
+        // Create a 3D box for each element
+        function create3DBox(element) {
+          const geometry = new THREE.BoxGeometry(element.width, element.height, 1);
+          const material = new THREE.MeshBasicMaterial({ color: new THREE.Color(element.color) });
+          const cube = new THREE.Mesh(geometry, material);
+          cube.position.set(element.x, element.y, element.z);
+          scene.add(cube);
+        }
+
+        // Draw the 3D scene
+        function drawScene() {
+          elements.forEach(element => {
+            create3DBox(element);
+          });
+        }
+
+        // Snap the element position to the grid
+        function snapToGrid(element) {
+          element.x = Math.round(element.x / gridSize) * gridSize;
+          element.y = Math.round(element.y / gridSize) * gridSize;
+        }
+
+        // Handle dropping elements onto the canvas
+        function handleDrop(event) {
+          event.preventDefault();
+          const data = JSON.parse(event.dataTransfer.getData('application/json'));
+          const mouseX = (event.clientX / canvas.width) * 2 - 1;
+          const mouseY = -(event.clientY / canvas.height) * 2 + 1;
+
+          const vector = new THREE.Vector3(mouseX, mouseY, 0.5);
+          vector.unproject(camera);
+
+          const dir = vector.sub(camera.position).normalize();
+          const distance = -camera.position.z / dir.z;
+          const position = camera.position.clone().add(dir.multiplyScalar(distance));
+
+          // Snap to grid
+          position.x = Math.round(position.x / gridSize) * gridSize;
+          position.y = Math.round(position.y / gridSize) * gridSize;
+
+          elements.push({
+            type: data.type,
+            color: data.color,
+            x: position.x,
+            y: position.y,
+            z: 0,
+            width: 1,
+            height: 1,
+          });
+
+          drawScene();
+        }
+
+        init();
+        canvas.addEventListener('drop', handleDrop);
+        canvas.addEventListener('dragover', function (event) {
+          event.preventDefault();
+        });
+      });
+    </script>
+    <title>3D Closet Configurator</title>
+    <style>
+        body { margin: 0; }
+    </style>
 </head>
 <body>
 <canvas id="canvas"></canvas>
-
 </body>
 </html>
